@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "router-lab"
+version = "0.1.0"
+description = "Make your own routing network!"
+authors = ["wldhg <wldhg@aru.qa>"]
+readme = "README.md"
+packages = [{ include = "rlab" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+
+[tool.pyright]
+include = ["router_lab"]
+pythonVersion = "3.10"
+pythonPlatform = "Linux"
+typeCheckingMode = "basic"
+reportPropertyTypeMismatch = "error"
+reportFunctionMemberAccess = "error"
+reportDuplicateImport = "error"
+reportPrivateUsage = "error"
+reportTypeCommentUsage = "error"
+reportConstantRedefinition = "error"
+reportMissingParameterType = "warning"
+reportImplicitStringConcatenation = "warning"
+reportUnnecessaryIsInstance = "error"
+reportUnnecessaryCast = "error"
+reportUnnecessaryComparison = "error"
+reportUnnecessaryContains = "error"
+reportUnnecessaryTypeIgnoreComment = "warning"
+reportUnusedClass = "warning"
+reportUnusedFunction = "warning"
+reportUnusedVariable = "warning"
+reportUnusedExpression = "warning"
