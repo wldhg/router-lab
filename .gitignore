@@ -23,6 +23,7 @@ cover/
 tests/_test_artifacts/
 
 # Logs
+temp/
 logs/
 *.log
 
@@ -30,3 +31,9 @@ logs/
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
+
+# My python
+algo_my/**/*
+!algo_my/__init__.py
+!algo_my/__base__.py
+!algo_my/

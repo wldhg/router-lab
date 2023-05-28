@@ -15,8 +15,7 @@
   "files.eol": "\n",
   "files.exclude": {
     "**/.git": true,
-    "**/.venv": true,
-    "**/.pytest_cache": true
+    "**/.venv": true
   },
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
