@@ -4,69 +4,104 @@ import os
 import queue
 import threading
 import time
+from typing import Awaitable, Callable
 
 import loguru
 
-from algo_my import RLabAlgoBase
+from .node_custom_base import NodeCustomBase
+from .node_stats import NodeStats
 
 
 class Node:
     def __init__(
         self,
-        name: str,
+        ip: str,
         algo_path: str,
         in_queue: queue.Queue,
-        out_queue: queue.Queue,
+        unicast: Callable[[str, str, bytes], Awaitable[None]],
+        broadcast: Callable[[str, bytes], Awaitable[None]],
         logger: "loguru.Logger",
     ):
-        self.name = name
-        self.log = logger.bind(ctx=f"node:{name}")
+        self.ip = ip
+        self.log = logger.bind(ctx=f"node:{ip}")
+        self.down = False
+        self.in_queue = in_queue
 
-        algo_class: None | type[RLabAlgoBase] = None
+        self.received_pkts = 0
+        self.sent_pkts = 0
+        self.received_bytes = 0
+        self.sent_bytes = 0
+
+        def local_unicast(dst: str, msg: bytes):
+            self.sent_pkts += 1
+            self.sent_bytes += len(msg)
+            return unicast(ip, dst, msg)
+
+        def local_broadcast(msg: bytes):
+            self.sent_pkts += 1
+            self.sent_bytes += len(msg)
+            return broadcast(ip, msg)
+
+        algo_class: None | type[NodeCustomBase] = None
         for v in importlib.import_module(
-            f"algo_my.{os.path.basename(algo_path).replace('.py', '')}"
+            f"my_node.{os.path.basename(algo_path).replace('.py', '')}"
         ).__dict__.values():
             if (
                 inspect.isclass(v)
                 and (not inspect.isabstract(v))
-                and (v is not RLabAlgoBase)
-                and issubclass(v, RLabAlgoBase)
+                and (v is not NodeCustomBase)
+                and issubclass(v, NodeCustomBase)
             ):
                 algo_class = v
                 break
-
         assert algo_class is not None, "No algorithm class found"
         self.algo_class = algo_class
-        self.algo: None | RLabAlgoBase = None
+        self.algo: NodeCustomBase = self.algo_class(
+            ip,
+            local_unicast,
+            local_broadcast,
+            self.log,
+        )
 
-        self.down = False
+        self.stop_signal = threading.Event()
+        self.thread1 = threading.Thread(target=self.__recv_handler)
+        self.thread1.start()
 
-        self.in_queue = in_queue
-        self.out_queue = out_queue
+        self.thread2 = threading.Thread(target=self.algo.main)
+        self.thread2.start()
 
         self.log.info("Initialized")
 
-        self.thread = threading.Thread(target=self.recv_handler)
-        self.thread.start()
+    def __del__(self):
+        self.stop()
 
-    def recv_handler(self):
-        self.algo = self.algo_class()
-        self.log.info("Started")
-        while True:
+    def __recv_handler(self):
+        while not self.stop_signal.is_set():
             try:
-                byte1 = self.in_queue.get(timeout=0.1)
-                self.log.info(f"Got: {byte1}")
-                raise NotImplementedError
+                src_ip, byte1 = self.in_queue.get(timeout=0.5)
+                if src_ip != "":
+                    self.received_pkts += 1
+                    self.received_bytes += len(byte1)
+                    threading.Thread(target=self.algo.on_recv, args=(src_ip, byte1)).start()
             except queue.Empty:
                 time.sleep(0.1)
             except Exception as e:
                 self.log.exception(e)
                 break
 
-    def send(self, target: str, msg: bytes):
-        self.log.info(f"Sent: {msg}")
-        self.out_queue.put((target, msg))
+    def get_node_stats(self) -> NodeStats:
+        return NodeStats(
+            self.ip,
+            self.down,
+            self.received_pkts,
+            self.sent_pkts,
+            self.received_bytes,
+            self.sent_bytes,
+        )
 
     def stop(self):
-        self.log.info("Stopped")
-        raise NotImplementedError
+        self.stop_signal.set()
+        self.in_queue.put(("", True))
+        self.thread1.join()
+        # TODO : graceful stop algo thread
+        self.algo.on_stop()

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import copy
 from threading import Lock, Thread
 from typing import Any, Callable, Generic, TypeVar
@@ -42,23 +44,26 @@ class ThreadedPromiseLike(Generic[V]):
     def __threaded_exception_firing(self, callback: Callable[[Exception], Any]):
         Thread(target=callback, args=(self.__fired_exception,)).start()
 
-    def once(self, callback: Callable[[V], Any]):
+    def once(self, callback: Callable[[V], Any]) -> ThreadedPromiseLike:
         with self.__lock:
             if self.__fired_data is not None:
                 self.__threaded_data_firing(callback)
             elif self.__fired_exception is not None:
                 self.__once_list.append(callback)
+        return self
 
-    def then(self, callback: Callable[[V], Any]):
+    def then(self, callback: Callable[[V], Any]) -> ThreadedPromiseLike:
         with self.__lock:
             if self.__fired_data is not None:
                 self.__threaded_data_firing(callback)
             elif self.__fired_exception is not None:
                 self.__on_list.append(callback)
+        return self
 
-    def catch(self, callback: Callable[[Exception], Any]):
+    def catch(self, callback: Callable[[Exception], Any]) -> ThreadedPromiseLike:
         with self.__lock:
             if self.__fired_exception is not None:
                 self.__threaded_exception_firing(callback)
             elif self.__fired_data is not None:
                 self.__catch_list.append(callback)
+        return self

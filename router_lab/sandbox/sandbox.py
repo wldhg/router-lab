@@ -2,13 +2,16 @@ import multiprocessing as mp
 import multiprocessing.connection as mpc
 import threading
 import uuid
-from typing import Callable
+from typing import Any, Callable
 
 import loguru
 
 from ..config import RouterLabConfig
 from ..utils import ThreadedPromiseLike
+from .node_stats import NodeStats
 from .world import World
+from .world_info import WorldInfo
+from .world_stats import WorldState, WorldStats
 
 
 class Sandbox:
@@ -24,9 +27,12 @@ class Sandbox:
 
         self.__pipe_from_world, self.__pipe_to_world = mpc.Pipe(duplex=True)
         self.__process: mp.Process = mp.Process(
-            target=World, args=(self.__pipe_from_world, self.__pipe_to_world)
+            target=World,
+            args=(self.__pipe_from_world, self.__pipe_to_world, cfg.world_log_buffer_capacity),
         )
         self.__process.start()
+
+        self.__process_last_state: WorldState = "initialized"
 
     def __del__(self):
         self.__thr_must_stop.set()  # reserve to stop while loop
@@ -50,7 +56,7 @@ class Sandbox:
             else:
                 self.__log.warning(f"Unknown bomb_id: {bomb_id}")
 
-    def __pipe_sender(self, fn_name: str, data: dict) -> ThreadedPromiseLike[dict]:
+    def __pipe_sender(self, fn_name: str, data: dict) -> ThreadedPromiseLike[Any]:
         __bomb_id = str(uuid.uuid4())
         __recv_lock = threading.Lock()
         __recv_lock.acquire()
@@ -76,6 +82,8 @@ class Sandbox:
 
     def configure(
         self,
+        subnet: str,
+        mtu: int,
         node_num: int,
         link_min: int,
         link_max: int,
@@ -84,10 +92,12 @@ class Sandbox:
         kbps_std_max: float,
         bit_corrupt_rate: float,
         node_down_rate: float,
-    ) -> ThreadedPromiseLike[dict]:
+    ) -> ThreadedPromiseLike[None]:
         return self.__pipe_sender(
             "configure",
             {
+                "subnet": subnet,
+                "mtu": mtu,
                 "node_num": node_num,
                 "link_min": link_min,
                 "link_max": link_max,
@@ -99,17 +109,35 @@ class Sandbox:
             },
         )
 
-    def start(self, algo_path: str):
-        self.__pipe_to_world.send(("start", {"algo_path": algo_path}))
+    def start(self, algo_path: str) -> ThreadedPromiseLike[None]:
+        return self.__pipe_sender("start", {"algo_path": algo_path})
 
-    def stop(self):
-        self.__pipe_to_world.send(("stop", None))
+    def stop(self) -> ThreadedPromiseLike[None]:
+        return self.__pipe_sender("stop", {})
 
-    def get_stat(self) -> dict[str, str | int | float]:
-        raise NotImplementedError
+    def get_stats(self) -> ThreadedPromiseLike[WorldStats]:
+        def update_stat(stat: WorldStats):
+            self.__process_last_state = stat.state
+
+        promise = self.__pipe_sender("get_stats", {})
+        promise.once(update_stat)
+        return promise
+
+    def get_node_stats(self, ip: str) -> ThreadedPromiseLike[NodeStats]:
+        return self.__pipe_sender("get_node_stats", {"ip": ip})
+
+    def get_info(self) -> ThreadedPromiseLike[WorldInfo]:
+        return self.__pipe_sender("get_info", {})
+
+    def get_logs(self) -> ThreadedPromiseLike[list[loguru.Record]]:
+        return self.__pipe_sender("get_logs", {})
 
     def is_running(self) -> bool:
-        raise NotImplementedError
+        return self.__process.is_alive() and self.__process_last_state == "running"
 
     def is_configured(self) -> bool:
-        raise NotImplementedError
+        return (
+            self.__process.is_alive()
+            and self.__process_last_state == "configured"
+            or self.is_running()
+        )

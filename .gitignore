@@ -33,7 +33,6 @@ logs/
 !.vscode/extensions.json
 
 # My python
-algo_my/**/*
-!algo_my/__init__.py
-!algo_my/__base__.py
-!algo_my/
+my_node/**/*
+!my_node/__init__.py
+!my_node/

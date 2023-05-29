@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from threading import Thread
+from threading import Event, Thread
 from typing import Any, Callable
 
 import loguru
@@ -8,7 +8,7 @@ from aiohttp import web
 
 from .config import RouterLabConfig
 from .sandbox import Sandbox
-from .utils import ExplicitDelDict, __version__
+from .utils import ExplicitDelDict, __version__, make_200, make_500
 
 
 @dataclass
@@ -18,7 +18,8 @@ class RouterLabParts:
     app: web.Application
 
     sandboxes: ExplicitDelDict[str, Sandbox]
-    stat_thrs: ExplicitDelDict[str, Thread]
+    subscribe_thrs: ExplicitDelDict[str, list[Thread]]
+    subscribe_thrs_stop_event: ExplicitDelDict[str, Event]
 
     _bare_logger: "loguru.Logger"
     _is_built: bool = False
@@ -34,12 +35,30 @@ class RouterLabParts:
         def wrapped_handler(
             sid: str, *args, **kwargs  # pyright: ignore[reportMissingParameterType]
         ):
+            def send_200(data: dict):
+                return self.sio.emit(
+                    handler.__name__, make_200(data), room=sid, namespace=self.cfg.socket_ns
+                )
+
+            def send_500(msg: str):
+                return self.sio.emit(
+                    handler.__name__, make_500(msg), room=sid, namespace=self.cfg.socket_ns
+                )
+
+            def get_data(name: str) -> Any:
+                if name in kwargs:
+                    return kwargs[name]
+                if len(args) > 0:
+                    return args[0]
+                return None
+
             return handler(
                 self,
                 self.get_main_logger(f"+{handler.__name__}").bind(sid=sid),
+                send_200,
+                send_500,
+                get_data,
                 sid,
-                *args,
-                **kwargs,
             )
 
         self.sio.on(handler.__name__, wrapped_handler, self.cfg.socket_ns)
@@ -54,7 +73,8 @@ class RouterLabParts:
             sio=sio,
             app=app,
             sandboxes=ExplicitDelDict(),
-            stat_thrs=ExplicitDelDict(),
+            subscribe_thrs=ExplicitDelDict(),
+            subscribe_thrs_stop_event=ExplicitDelDict(),
             _bare_logger=log,
             _is_built=True,
         )
