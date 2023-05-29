@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from threading import Event, Thread
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 import loguru
 import socketio
@@ -31,8 +31,8 @@ class RouterLabParts:
         """NOTE : explicitly bind context string to the logger"""
         return self._bare_logger.bind(ctx=ctx)
 
-    def add_sio_event_handler(self, handler: Callable[..., Any]):
-        def wrapped_handler(
+    def add_sio_event_handler(self, handler: Callable[..., Awaitable[Any]]):
+        async def wrapped_handler(
             sid: str, *args, **kwargs  # pyright: ignore[reportMissingParameterType]
         ):
             def send_200(data: dict):
@@ -52,7 +52,7 @@ class RouterLabParts:
                     return args[0]
                 return None
 
-            return handler(
+            await handler(
                 self,
                 self.get_main_logger(f"+{handler.__name__}").bind(sid=sid),
                 send_200,
@@ -72,9 +72,9 @@ class RouterLabParts:
             cfg=cfg,
             sio=sio,
             app=app,
-            sandboxes=ExplicitDelDict(),
-            subscribe_thrs=ExplicitDelDict(),
-            subscribe_thrs_stop_event=ExplicitDelDict(),
+            sandboxes=ExplicitDelDict("sandboxes"),
+            subscribe_thrs=ExplicitDelDict("subscribe_thrs"),
+            subscribe_thrs_stop_event=ExplicitDelDict("subscribe_thrs_stop_event"),
             _bare_logger=log,
             _is_built=True,
         )

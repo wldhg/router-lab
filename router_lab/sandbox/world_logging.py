@@ -6,12 +6,12 @@ import loguru
 class WorldLoggingHandler(logging.Handler):
     def __init__(self):
         logging.Handler.__init__(self)
-        self.buffer: list[loguru.Record] = []
+        self.buffer: list["loguru.Record"] = []
 
-    def emit(self, record: loguru.Record):
+    def emit(self, record: "loguru.Record"):
         self.buffer.append(record)
 
-    def flush(self) -> list[loguru.Record]:
+    def flush(self) -> list["loguru.Record"]:
         self.acquire()
         buffer_copy = self.buffer.copy()
         try:

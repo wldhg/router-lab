@@ -5,7 +5,7 @@ import { io } from "socket.io-client";
 export default function FnSocket() {
 
   useEffect(() => {
-    const socket = io("http://localhost:49699/rlab", {
+    const socket = io("http://localhost:7000/rlab", {
       autoConnect: false,
     });
     socket.on("connect", () => {

@@ -46,8 +46,6 @@ export default function Home() {
     },
   });
 
-  console.log(theme);
-
   return (
     <>
       <Head>

@@ -13,6 +13,9 @@ async def disconnect(
     get_data: Callable[[str], Any],
     sid: str,
 ):
+    sbx = rlp.sandboxes.get(sid)
+    if sbx is not None:
+        sbx.destroy()
     rlp.sandboxes.remove(sid)
 
     sub_thrs_stopper = rlp.subscribe_thrs_stop_event.get(sid)

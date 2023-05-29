@@ -1,5 +1,7 @@
 import os
+import signal
 from dataclasses import dataclass
+from types import FrameType
 
 import aiohttp_cors
 import socketio
@@ -96,5 +98,22 @@ class RouterLab(RouterLabConfig):
             else:
                 cors.add(route)
 
+        def signal_handler(sig: int, frame: FrameType | None):
+            logger.info("Router Lab Backend is shutting down...")
+            parts.sandboxes.destroy()
+            exit(0)
+
+        signal.signal(signal.SIGINT, signal_handler)
+
         logger.success("Router Lab Backend is ready!")
-        web.run_app(app, host=self.socket_host, port=self.socket_port, print=logger.info)
+        try:
+            web.run_app(
+                app,
+                host=self.socket_host,
+                port=self.socket_port,
+                print=logger.info,
+                handle_signals=False,
+            )
+        except KeyboardInterrupt:
+            logger.info("Router Lab Backend is shutting down...")
+            parts.sandboxes.destroy()

@@ -23,7 +23,7 @@ class World:
         self.id = str(uuid.uuid4())[:4]
 
         self.log_buffer = WorldLoggingHandler()
-        self.log = init_logger(f"{time.time()}-{self.id}.log").bind(world=self.id)
+        self.log = init_logger(f"{int(time.time())}-{self.id}.log").bind(world=self.id)
         self.log.add(self.log_buffer, level=logging.DEBUG)
 
         self.pipe_to_sbx = pipe_to_sbx
@@ -149,12 +149,16 @@ class World:
 
     def stop(self):
         self.current_thread_stop_signal = True
-        self.pipe_from_sbx.send(("", True))
+        if hasattr(self, "pipe_from_sbx"):
+            self.pipe_from_sbx.send(("", True))
         if self.current_thread1 is not None:
             self.current_thread1.join()
-        for node in self.current_nodes:
-            node.stop()
+        if hasattr(self, "current_nodes"):
+            for node in self.current_nodes:
+                node.stop()
         self.current_state = "stopped"
+        if hasattr(self, "log"):
+            self.log.info("World terminated")
 
     def update_node_updown_thread(self):
         while not self.current_thread_stop_signal:
@@ -192,7 +196,7 @@ class World:
         idx = self.node_ips.index(ip)
         return self.current_nodes[idx].get_node_stats()
 
-    def get_logs(self) -> list[loguru.Record]:
+    def get_logs(self) -> list["loguru.Record"]:
         return self.log_buffer.flush()
 
     def apply_corrupt(self, data: bytes) -> bytes:

@@ -100,8 +100,12 @@ class Node:
         )
 
     def stop(self):
-        self.stop_signal.set()
-        self.in_queue.put(("", True))
-        self.thread1.join()
+        if hasattr(self, "stop_signal"):
+            self.stop_signal.set()
+        if hasattr(self, "in_queue"):
+            self.in_queue.put(("", True))
+        if hasattr(self, "thread1"):
+            self.thread1.join()
         # TODO : graceful stop algo thread
-        self.algo.on_stop()
+        if hasattr(self, "algo"):
+            self.algo.on_stop()

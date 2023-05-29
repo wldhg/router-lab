@@ -21,40 +21,42 @@ class Sandbox:
 
         self.__recv_channels: dict[str, tuple[threading.Lock, Callable[[dict], None]]] = {}
 
+        self.__pipe_from_world, self.__pipe_to_world = mpc.Pipe(duplex=True)
+        self.__process: mp.Process = mp.Process(
+            target=World,
+            args=(self.__pipe_from_world, self.__pipe_to_world),
+            daemon=True,
+        )
+        self.__process.start()
+
         self.__thr_must_stop = threading.Event()
         self.__thr1 = threading.Thread(target=self.__pipe_recv_producer)
         self.__thr1.start()
 
-        self.__pipe_from_world, self.__pipe_to_world = mpc.Pipe(duplex=True)
-        self.__process: mp.Process = mp.Process(
-            target=World,
-            args=(self.__pipe_from_world, self.__pipe_to_world, cfg.world_log_buffer_capacity),
-        )
-        self.__process.start()
-
         self.__process_last_state: WorldState = "initialized"
+        self.is_initialized = True
 
     def __del__(self):
-        self.__thr_must_stop.set()  # reserve to stop while loop
-        self.__pipe_from_world.send(("stop", None))  # rotate while loop by feeding .recv()
-        if self.__process.is_alive():
-            self.__process.terminate()
-            self.__process.join()
-        self.__thr1.join()  # join at the last for non-blocking termination
+        self.destroy()
 
     def __pipe_recv_producer(self):
         while not self.__thr_must_stop.is_set():
+            bomb_id: str = ""
+            data: Any = "__URSULA__"
             try:
                 bomb_id, data = self.__pipe_from_world.recv()
             except EOFError:
                 self.__log.error("PIPE from the world is closed")
                 break
-            if bomb_id in self.__recv_channels:
+            except ConnectionResetError:
+                self.__log.error("PIPE from the world is reset (maybe due to destruction)")
+                break
+            except Exception as e:
+                self.__log.exception(e)
+            if data != "__URSULA__" and bomb_id in self.__recv_channels:
                 lock, consumer = self.__recv_channels.pop(bomb_id)
                 consumer(data)
                 lock.release()
-            else:
-                self.__log.warning(f"Unknown bomb_id: {bomb_id}")
 
     def __pipe_sender(self, fn_name: str, data: dict) -> ThreadedPromiseLike[Any]:
         __bomb_id = str(uuid.uuid4())
@@ -79,6 +81,19 @@ class Sandbox:
         self.__pipe_to_world.send((fn_name, __bomb_id, data))
 
         return ThreadedPromiseLike(__recv_resolver)
+
+    def destroy(self):
+        if hasattr(self, "is_initialized") and self.is_initialized:
+            self.__thr_must_stop.set()  # reserve to stop while loop
+            if not self.__pipe_from_world.closed:
+                self.__pipe_from_world.send(("stop", None))  # rotate while loop by feeding .recv()
+                self.__pipe_from_world.close()
+            if not self.__pipe_to_world.closed:
+                self.__pipe_to_world.close()
+            if self.__process.is_alive():
+                self.__process.terminate()
+                self.__process.join()
+            self.__thr1.join()  # join at the last for non-blocking termination
 
     def configure(
         self,
@@ -129,7 +144,7 @@ class Sandbox:
     def get_info(self) -> ThreadedPromiseLike[WorldInfo]:
         return self.__pipe_sender("get_info", {})
 
-    def get_logs(self) -> ThreadedPromiseLike[list[loguru.Record]]:
+    def get_logs(self) -> ThreadedPromiseLike[list["loguru.Record"]]:
         return self.__pipe_sender("get_logs", {})
 
     def is_running(self) -> bool:
