@@ -12,10 +12,25 @@ class NodeCustomBase(ABC):
         broadcast: Callable[[bytes], Awaitable[None]],
         log: "loguru.Logger",
     ):
-        self.node_ip = node_ip
+        self.ip = node_ip
         self.unicast = unicast
         self.broadcast = broadcast
         self.log = log
+
+    async def every_1s(self):
+        pass
+
+    async def every_3s(self):
+        pass
+
+    async def every_5s(self):
+        pass
+
+    async def every_10s(self):
+        pass
+
+    async def every_30s(self):
+        pass
 
     @abstractmethod
     async def main(self):

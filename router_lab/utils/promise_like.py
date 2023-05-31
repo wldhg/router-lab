@@ -1,69 +1,106 @@
 from __future__ import annotations
 
+import asyncio
 import copy
-from threading import Lock, Thread
-from typing import Any, Callable, Generic, TypeVar
+import logging
+from typing import Any, Awaitable, Callable, Generic, TypeVar
+
+from .undefined import UNDEFINED, UndefinedType
 
 V = TypeVar("V")
 
 
-class ThreadedPromiseLike(Generic[V]):
-    def __init__(self, data_fn: Callable[[], V]):
-        self.__lock = Lock()
-        self.__fired_data: V | None = None
-        self.__fired_exception: Exception | None = None
+class PromiseLike(Generic[V]):
+    def __init__(self, data_fn: Callable[[], V] | Awaitable[V]):
+        self.__lock = asyncio.Lock()
+        self.__fired_data: V | UndefinedType = UNDEFINED
+        self.__fired_exception: Exception | UndefinedType = UNDEFINED
         self.__once_list: list[Callable[[V], Any]] = []
         self.__on_list: list[Callable[[V], Any]] = []
         self.__catch_list: list[Callable[[Exception], Any]] = []
 
-        def get_data_and_dispatch():
+        async def get_data_and_dispatch():
             try:
-                self.__fired_data = data_fn()
+                if asyncio.iscoroutine(data_fn):
+                    self.__fired_data = await data_fn
+                elif callable(data_fn):
+                    self.__fired_data = data_fn()
+                else:
+                    raise TypeError("data_fn must be callable or awaitable: " + str(data_fn))
             except Exception as e:
                 self.__fired_exception = e
-                with self.__lock:
+                logging.debug("PRM = lock 1 entered")
+                async with self.__lock:
                     for callback in self.__catch_list:
-                        self.__threaded_exception_firing(callback)
+                        await self.__exception_firing(callback)
                     self.__on_list.clear()
                     self.__once_list.clear()
+                    logging.debug("PRM = lock 1 exited")
             else:
-                with self.__lock:
+                logging.debug("PRM = lock 2 entered")
+                async with self.__lock:
                     for callback in self.__once_list:
-                        self.__threaded_data_firing(callback)
+                        await self.__data_firing(callback)
                     for callback in self.__on_list:
-                        self.__threaded_data_firing(callback)
+                        await self.__data_firing(callback)
                     self.__once_list.clear()
                     self.__catch_list.clear()
+                    logging.debug("PRM = lock 2 exited")
 
-        Thread(target=get_data_and_dispatch).start()
+        asyncio.create_task(get_data_and_dispatch())
 
-    def __threaded_data_firing(self, callback: Callable[[V], Any]):
+    async def __data_firing(self, callback: Callable[[V], Any]):
+        if self.__fired_data == UNDEFINED:
+            return
         fired_data = copy.deepcopy(self.__fired_data)
-        Thread(target=callback, args=(fired_data,)).start()
+        retval = callback(fired_data)
+        if asyncio.iscoroutine(retval):
+            await retval
 
-    def __threaded_exception_firing(self, callback: Callable[[Exception], Any]):
-        Thread(target=callback, args=(self.__fired_exception,)).start()
+    async def __exception_firing(self, callback: Callable[[Exception], Any]):
+        if self.__fired_exception == UNDEFINED:
+            return
+        retval = callback(self.__fired_exception)
+        if asyncio.iscoroutine(retval):
+            await retval
 
-    def once(self, callback: Callable[[V], Any]) -> ThreadedPromiseLike:
-        with self.__lock:
-            if self.__fired_data is not None:
-                self.__threaded_data_firing(callback)
-            elif self.__fired_exception is not None:
-                self.__once_list.append(callback)
+    def once(self, callback: Callable[[V], Any]) -> PromiseLike:
+        async def _once():
+            logging.debug("PRM = lock 3 entered")
+            async with self.__lock:
+                if self.__fired_data != UNDEFINED:
+                    logging.debug("PRM = lock 3 fire 1")
+                    asyncio.create_task(self.__data_firing(callback))
+                elif self.__fired_exception == UNDEFINED:
+                    logging.debug("PRM = lock 3 fire 2")
+                    self.__once_list.append(callback)
+                logging.debug("PRM = lock 3 exited")
+
+        asyncio.create_task(_once())
         return self
 
-    def then(self, callback: Callable[[V], Any]) -> ThreadedPromiseLike:
-        with self.__lock:
-            if self.__fired_data is not None:
-                self.__threaded_data_firing(callback)
-            elif self.__fired_exception is not None:
-                self.__on_list.append(callback)
+    def then(self, callback: Callable[[V], Any]) -> PromiseLike:
+        async def _then():
+            logging.debug("PRM = lock 4 entered")
+            async with self.__lock:
+                if self.__fired_data != UNDEFINED:
+                    asyncio.create_task(self.__data_firing(callback))
+                elif self.__fired_exception == UNDEFINED:
+                    self.__on_list.append(callback)
+                logging.debug("PRM = lock 4 exited")
+
+        asyncio.create_task(_then())
         return self
 
-    def catch(self, callback: Callable[[Exception], Any]) -> ThreadedPromiseLike:
-        with self.__lock:
-            if self.__fired_exception is not None:
-                self.__threaded_exception_firing(callback)
-            elif self.__fired_data is not None:
-                self.__catch_list.append(callback)
+    def catch(self, callback: Callable[[Exception], Any]) -> PromiseLike:
+        async def _catch():
+            logging.debug("PRM = lock 5 entered")
+            async with self.__lock:
+                if self.__fired_exception != UNDEFINED:
+                    asyncio.create_task(self.__exception_firing(callback))
+                elif self.__fired_data == UNDEFINED:
+                    self.__catch_list.append(callback)
+                logging.debug("PRM = lock 5 exited")
+
+        asyncio.create_task(_catch())
         return self

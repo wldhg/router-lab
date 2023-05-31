@@ -23,13 +23,14 @@ def log_formatter(ctx_fmt_str: str):
     return _log_formatter
 
 
-def init_logger(file_name: str):
+def init_logger(file_name: str, log_level: str):
     logger.remove()
     logger.add(
         f"logs/{file_name}",
         format=log_formatter(
             "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | {extra[__ctx__]}{message}\n"
         ),
+        level="DEBUG",
     )
     logger.add(
         RichHandler(),
@@ -37,6 +38,6 @@ def init_logger(file_name: str):
         colorize=False,
         backtrace=True,
         diagnose=True,
-        level="DEBUG",
+        level=log_level,
     )
     return logger

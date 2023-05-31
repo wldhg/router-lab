@@ -1,6 +1,4 @@
 import asyncio
-import threading
-import time
 from typing import Any, Callable
 
 import loguru
@@ -11,34 +9,27 @@ from ..parts import RouterLabParts
 async def subscribe_world_stats(
     rlp: RouterLabParts,
     log: "loguru.Logger",
-    send_200: Callable[[dict], Any],
-    send_500: Callable[[str], Any],
+    send_200: Callable[[Any], Any],
+    send_500: Callable[[Any], Any],
     get_data: Callable[[str], Any],
     sid: str,
 ):
     sbx = rlp.sandboxes.get(sid)
     assert sbx is not None, "Sandbox not found."
 
-    def stat_fn():
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        event = rlp.subscribe_thrs_stop_event.get(sid)
-        while event is not None and not event.is_set():
+    async def stat_fn():
+        while True:
             try:
-                sbx.get_stats().then(lambda l: send_200(l.__dict__)).catch(
-                    lambda e: send_500(str(e))
-                )
+                sbx.get_stats().then(send_200).catch(send_500)
             except EOFError:
                 break
-            time.sleep(rlp.cfg.world_stats_subscribe_interval)
-        loop.close()
+            await asyncio.sleep(rlp.cfg.world_stats_subscribe_interval)
 
-    stat_thr = threading.Thread(target=stat_fn)
-    stat_thr.start()
+    stat_task = asyncio.create_task(stat_fn())
 
-    def update_fn(orig: None | list[threading.Thread]):
+    def update_fn(orig: None | list[asyncio.Task]):
         if orig is not None:
-            return orig + [stat_thr]
-        return [stat_thr]
+            return orig + [stat_task]
+        return [stat_task]
 
-    rlp.subscribe_thrs.add(sid, update_fn)
+    await rlp.subscription_tasks.add(sid, update_fn)

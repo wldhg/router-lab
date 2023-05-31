@@ -10,8 +10,8 @@ from ..parts import RouterLabParts
 async def list_impls(
     rlp: RouterLabParts,
     log: "loguru.Logger",
-    send_200: Callable[[dict], Any],
-    send_500: Callable[[str], Any],
+    send_200: Callable[[Any], Any],
+    send_500: Callable[[Any], Any],
     get_data: Callable[[str], Any],
     sid: str,
 ):
@@ -23,4 +23,4 @@ async def list_impls(
         if basename.startswith("_"):
             continue
         algo_candidates.append(basename)
-    send_200({"files": algo_candidates})
+    await send_200(algo_candidates)

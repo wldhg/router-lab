@@ -35,4 +35,5 @@ logs/
 # My python
 my_node/**/*
 !my_node/__init__.py
+!my_node/dummy.py
 !my_node/

@@ -8,22 +8,18 @@ from ..parts import RouterLabParts
 async def disconnect(
     rlp: RouterLabParts,
     log: "loguru.Logger",
-    send_200: Callable[[dict], Any],
-    send_500: Callable[[str], Any],
+    send_200: Callable[[Any], Any],
+    send_500: Callable[[Any], Any],
     get_data: Callable[[str], Any],
     sid: str,
 ):
     sbx = rlp.sandboxes.get(sid)
     if sbx is not None:
         sbx.destroy()
-    rlp.sandboxes.remove(sid)
+    await rlp.sandboxes.remove(sid)
 
-    sub_thrs_stopper = rlp.subscribe_thrs_stop_event.get(sid)
-    if sub_thrs_stopper is not None:
-        sub_thrs_stopper.set()
-    sub_thrs = rlp.subscribe_thrs.get(sid)
-    if sub_thrs is not None:
-        for thr in sub_thrs:
-            thr.join()
-    rlp.subscribe_thrs.remove(sid)
-    rlp.subscribe_thrs_stop_event.remove(sid)
+    sub_tasks = rlp.subscription_tasks.get(sid)
+    if sub_tasks is not None:
+        for task in sub_tasks:
+            task.cancel()
+    await rlp.subscription_tasks.remove(sid)

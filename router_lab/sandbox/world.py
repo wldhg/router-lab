@@ -3,11 +3,12 @@ import datetime
 import logging.handlers
 import multiprocessing.connection as mpc
 import queue
+import random
 import threading
 import time
 import uuid
+from typing import Any
 
-import loguru
 import numpy as np
 
 from ..utils import broadcast_ip, init_logger, random_ip
@@ -20,12 +21,6 @@ from .world_stats import WorldState, WorldStats
 
 class World:
     def __init__(self, pipe_to_sbx: mpc.Connection, pipe_from_sbx: mpc.Connection):
-        self.id = str(uuid.uuid4())[:4]
-
-        self.log_buffer = WorldLoggingHandler()
-        self.log = init_logger(f"{int(time.time())}-{self.id}.log").bind(world=self.id)
-        self.log.add(self.log_buffer, level=logging.DEBUG)
-
         self.pipe_to_sbx = pipe_to_sbx
         self.pipe_from_sbx = pipe_from_sbx
 
@@ -38,33 +33,42 @@ class World:
         self.kbps_std = np.zeros((0, 0), dtype=np.float64)
         self.bit_corrupt_rate = 0.0001
         self.node_down_rate = 0.01
+        self.node_down_interval = 8.88
 
         self.current_nodes: list[Node] = []
-        self.current_nodes_lock: list[asyncio.Lock] = []
-        self.current_nodes_lock_global = asyncio.Lock()
+        self.current_links: dict[tuple[str, str], bool]
         self.current_nodes_updown: dict[str, bool] = {}
         self.current_transmissions: dict[tuple[str, str, str], int] = {}
         self.current_mq_to_node: list[queue.Queue] = []
         self.current_thread1: None | threading.Thread = None
-        self.current_thread_stop_signal = False
+        self.current_thread_stop_event = threading.Event()
         self.current_state: WorldState = "initialized"
 
-        self.start_time = datetime.datetime.now()
-
-        self.log.info("World initialized")
+        self.__initialize()
         self.__pipe_receiver()
 
-    def __del__(self):
-        self.stop()
+    def __initialize(self):
+        self.id = str(uuid.uuid4())[:4]
+        log_file_name = f"{int(time.time())}-{self.id}.log"
+        self.log_buffer = WorldLoggingHandler()
+        self.log = init_logger(log_file_name, log_level="DEBUG").bind(world=self.id)
+        self.log.add(self.log_buffer, level=logging.DEBUG)
+        self.start_time = datetime.datetime.now().timestamp()
+        self.log.info(f"World initialized, find your log at logs/{log_file_name} !")
+        self.current_state: WorldState = "initialized"
+        self.re_initialization_required = False
 
-    def __pipe_action(self, command: str, bomb_id: str, **kwargs: dict):
+    def __pipe_action(self, command: str, bomb_id: str, **kwargs: Any):
         try:
-            result = self.__dict__[command](**kwargs)
-            self.log.info(f"Processed command: {command}")
+            result = getattr(self, command)(**kwargs)
             self.pipe_to_sbx.send((bomb_id, result))
         except Exception as e:
-            self.log.error(f"Exception occurred while processing {command}: {e}")
-            self.pipe_to_sbx.send((bomb_id, e))
+            self.log.error(f"Exception occurred while processing command: {command}")
+            self.log.exception(e)
+            if self.pipe_to_sbx.closed:
+                self.log.error("PIPE to the sandbox is closed")
+            else:
+                self.pipe_to_sbx.send((bomb_id, e))
 
     def __pipe_receiver(self):
         while True:
@@ -82,14 +86,17 @@ class World:
         subnet: str,
         mtu: int,
         node_num: int,
-        link_min: int,
-        link_max: int,
+        link_sparsity: int,
         kbps_min: float,
         kbps_max: float,
         kbps_std_max: float,
         bit_corrupt_rate: float,
         node_down_rate: float,
+        node_down_interval: float,
     ):
+        if self.re_initialization_required:
+            self.__initialize()
+
         node_ips = set()
         while len(node_ips) < node_num:
             node_ips.add(random_ip(subnet))
@@ -102,31 +109,50 @@ class World:
         while True:
             topo_connection = np.random.randint(0, 2, (node_num, node_num))
             topo_connection = np.triu(topo_connection, 1)
-            if link_min <= np.sum(topo_connection) <= link_max:
+            for _ in range(link_sparsity):
+                topo_connection = topo_connection * np.random.randint(0, 2, (node_num, node_num))
+                topo_connection = np.triu(topo_connection, 1)
+            test_is_all_connected = False
+            topo_connection_test = topo_connection.copy()
+            topo_connection_test = topo_connection_test | topo_connection_test.T
+            for idx in range(node_num):
+                topo_connection_test[idx, idx] = True
+                for _ in range(node_num):
+                    topo_connection_test = topo_connection_test @ topo_connection_test
+                if np.all(topo_connection_test):
+                    test_is_all_connected = True
+                    break
+            if test_is_all_connected:
                 break
 
         topo_connection = topo_connection.astype(np.bool_)
 
         topo_kbps_mean = topo_connection.copy().astype(np.float64)
-        topo_kbps_mean[topo_kbps_mean >= 0] = np.random.normal(
-            kbps_min, kbps_max, topo_kbps_mean[topo_kbps_mean >= 0].shape
+        topo_kbps_mean *= np.maximum(
+            np.ones(topo_kbps_mean.shape) * 0.01,
+            np.random.normal(
+                (kbps_min + kbps_max) / 2, (kbps_max - kbps_min) / 2.5, topo_kbps_mean.shape
+            ),
         )
 
         topo_kbps_std = topo_connection.copy().astype(np.float64)
-        topo_kbps_std[topo_kbps_std >= 0] = np.random.normal(
-            0, kbps_std_max, topo_kbps_std[topo_kbps_std >= 0].shape
-        )
+        topo_kbps_std *= np.abs(np.random.normal(0, kbps_std_max, topo_kbps_std.shape))
 
         self.topo = topo_connection | topo_connection.T
         self.kbps_mean = topo_kbps_mean + topo_kbps_mean.T
         self.kbps_std = topo_kbps_std + topo_kbps_std.T
         self.bit_corrupt_rate = bit_corrupt_rate
         self.node_down_rate = node_down_rate
+        self.node_down_interval = node_down_interval
         self.current_state = "configured"
 
     def start(self, algo_path: str):
-        self.current_nodes_lock = [asyncio.Lock() for _ in range(len(self.node_ips))]
-        self.current_nodes_lock_global = asyncio.Lock()
+        self.log.info(f"Starting world with node implementation: {algo_path}")
+        self.current_links = {}
+        for ip1 in self.node_ips:
+            for ip2 in self.node_ips:
+                if ip1 < ip2:
+                    self.current_links[(ip1, ip2)] = False
         self.current_mq_to_node = [queue.Queue() for _ in range(len(self.node_ips))]
         self.current_nodes = [
             Node(
@@ -143,26 +169,29 @@ class World:
 
         self.current_state = "running"
 
-        self.current_thread_stop_signal = False
+        self.current_thread_stop_event = threading.Event()
         self.current_thread1 = threading.Thread(target=self.update_node_updown_thread, daemon=True)
         self.current_thread1.start()
 
+        for node in self.current_nodes:
+            node.start()
+
+        # TODO : reset metrics
+
     def stop(self):
-        self.current_thread_stop_signal = True
-        if hasattr(self, "pipe_from_sbx"):
-            self.pipe_from_sbx.send(("", True))
-        if self.current_thread1 is not None:
-            self.current_thread1.join()
+        self.current_state = "stopped"  # this will also stop all transmissions
+        # TODO : stop calculating metrics
+        self.re_initialization_required = True
         if hasattr(self, "current_nodes"):
             for node in self.current_nodes:
                 node.stop()
-        self.current_state = "stopped"
-        if hasattr(self, "log"):
-            self.log.info("World terminated")
+        self.current_thread_stop_event.set()  # stop node up/down thread
+        if self.current_thread1 is not None:
+            self.current_thread1.join()
+        self.log.info("World stopped")
 
     def update_node_updown_thread(self):
-        while not self.current_thread_stop_signal:
-            time.sleep(2.5)
+        while not self.current_thread_stop_event.is_set():
             updown = np.random.binomial(1, self.node_down_rate, len(self.node_ips))
             updown_dict = dict(zip(self.node_ips, map(bool, updown)))
             for idx in range(len(self.node_ips)):
@@ -171,12 +200,17 @@ class World:
                 else:
                     self.current_nodes[idx].down = False
             self.current_nodes_updown = updown_dict
-            self.log.info(f"Node U/D updated: {np.sum(updown)} nodes down")
+            self.log.debug(f"Node U/D updated: {np.sum(updown)} nodes down")
+            time.sleep(self.node_down_interval)
 
     def get_stats(self) -> WorldStats:
+        transmissions = []
+        current_transmissions = self.current_transmissions.copy()
+        for (src, dst, data_id), count in current_transmissions.items():
+            transmissions.append((src, dst, data_id, count))
         return WorldStats(
             state=self.current_state,
-            transmissions=self.current_transmissions,
+            transmissions=transmissions,
             nodes_updown=self.current_nodes_updown,
         )
 
@@ -196,8 +230,9 @@ class World:
         idx = self.node_ips.index(ip)
         return self.current_nodes[idx].get_node_stats()
 
-    def get_logs(self) -> list["loguru.Record"]:
-        return self.log_buffer.flush()
+    def get_logs(self) -> list[dict[str, Any]]:
+        logs = [r.__dict__["msg"] for r in self.log_buffer.flush()]
+        return logs
 
     def apply_corrupt(self, data: bytes) -> bytes:
         data_bits = np.unpackbits(np.frombuffer(data, dtype=np.uint8))
@@ -211,7 +246,7 @@ class World:
 
         for dst_idx in range(len(self.node_ips)):
             if self.topo[src_idx, dst_idx]:
-                asyncio.run(self.unicast(node_src, self.node_ips[dst_idx], data))
+                await self.unicast(node_src, self.node_ips[dst_idx], data)
 
     async def unicast(self, node_src: str, node_dst: str, data: bytes):
         if node_dst == self.broadcast_ip:
@@ -242,23 +277,28 @@ class World:
         bps = kbps * 1000
         delay = len(data) * 8 / bps / 100
 
-        # NOTE : PHY backoff is mocked without delay, by async sleep and loop
+        ip_tuple = (node_src, node_dst) if node_src < node_dst else (node_dst, node_src)
+        assert ip_tuple in self.current_links
 
-        async with self.current_nodes_lock_global:
-            async with self.current_nodes_lock[src_idx]:
-                self.current_transmissions[(node_src, node_dst, data_id)] = 0
-                for _ in range(100):
-                    self.current_transmissions[(node_src, node_dst, data_id)] += 1
-                    await asyncio.sleep(delay)
-                self.current_transmissions.pop((node_src, node_dst, data_id))
+        # Exponential Backoff with 1ms slot time
+        backoff = 0
+        while self.current_links[ip_tuple]:
+            backoff += 1
+            if backoff > 12:
+                return
+            await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.0005]))
+        self.current_links[ip_tuple] = True
+        self.current_transmissions[(node_src, node_dst, data_id)] = 0
+        for _ in range(100):
+            if self.current_state == "stopped":
+                return
+            self.current_transmissions[(node_src, node_dst, data_id)] += 1
+            await asyncio.sleep(delay)
+        self.current_transmissions.pop((node_src, node_dst, data_id))
 
-                if self.current_nodes[dst_idx].down:
-                    return
+        if self.current_nodes[dst_idx].down:
+            self.current_links[ip_tuple] = False
+            return
 
-                self.current_mq_to_node[dst_idx].put((node_src, data))
-
-                self.log.info(
-                    "Sent from {} to {}: {} bytes, {:.2f} kbps, {:.2f} s".format(
-                        node_src, node_dst, len(data), kbps, delay
-                    )
-                )
+        self.current_mq_to_node[dst_idx].put((node_src, data))
+        self.current_links[ip_tuple] = False

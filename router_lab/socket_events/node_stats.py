@@ -8,14 +8,14 @@ from ..parts import RouterLabParts
 async def node_stats(
     rlp: RouterLabParts,
     log: "loguru.Logger",
-    send_200: Callable[[dict], Any],
-    send_500: Callable[[str], Any],
+    send_200: Callable[[Any], Any],
+    send_500: Callable[[Any], Any],
     get_data: Callable[[str], Any],
     sid: str,
 ):
     ip: str | None = get_data("ip")
     if ip is None:
-        send_500("ip is required.")
+        await send_500("ip is required.")
         return
 
     sbx = rlp.sandboxes.get(sid)
@@ -25,8 +25,4 @@ async def node_stats(
         send_500("World is not configured.")
         return
 
-    sbx.get_node_stats(ip).once(
-        lambda stat: send_200(stat.__dict__),
-    ).catch(
-        lambda e: send_500(str(e)),
-    )
+    sbx.get_node_stats(ip).once(send_200).catch(send_500)

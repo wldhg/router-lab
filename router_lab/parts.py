@@ -1,5 +1,5 @@
+import asyncio
 from dataclasses import dataclass
-from threading import Event, Thread
 from typing import Any, Awaitable, Callable
 
 import loguru
@@ -8,7 +8,7 @@ from aiohttp import web
 
 from .config import RouterLabConfig
 from .sandbox import Sandbox
-from .utils import ExplicitDelDict, __version__, make_200, make_500
+from .utils import UNDEFINED, ExplicitDelDict, __version__, make_200, make_500
 
 
 @dataclass
@@ -18,8 +18,7 @@ class RouterLabParts:
     app: web.Application
 
     sandboxes: ExplicitDelDict[str, Sandbox]
-    subscribe_thrs: ExplicitDelDict[str, list[Thread]]
-    subscribe_thrs_stop_event: ExplicitDelDict[str, Event]
+    subscription_tasks: ExplicitDelDict[str, list[asyncio.Task]]
 
     _bare_logger: "loguru.Logger"
     _is_built: bool = False
@@ -35,15 +34,33 @@ class RouterLabParts:
         async def wrapped_handler(
             sid: str, *args, **kwargs  # pyright: ignore[reportMissingParameterType]
         ):
-            def send_200(data: dict):
-                return self.sio.emit(
+            self._bare_logger.debug(f"socket event: {handler.__name__}")
+
+            async def send_200(data: Any):
+                self._bare_logger.debug(f"send 200 requested")
+                if data == UNDEFINED or data is None:
+                    data = {}
+                elif hasattr(data, "__dict__"):
+                    data = {"data": data.__dict__}
+                else:
+                    data = {"data": data}
+                await self.sio.emit(
                     handler.__name__, make_200(data), room=sid, namespace=self.cfg.socket_ns
                 )
+                self._bare_logger.debug(f"send 200 done")
 
-            def send_500(msg: str):
-                return self.sio.emit(
+            async def send_500(msg: Any):
+                self._bare_logger.debug(f"send 500 requested")
+                if msg == UNDEFINED or msg is None:
+                    msg = "Unknown server-side error"
+                elif isinstance(msg, Exception):
+                    msg = str(msg)
+                else:
+                    msg = repr(msg)
+                await self.sio.emit(
                     handler.__name__, make_500(msg), room=sid, namespace=self.cfg.socket_ns
                 )
+                self._bare_logger.debug(f"send 500 done")
 
             def get_data(name: str) -> Any:
                 if name in kwargs:
@@ -73,8 +90,7 @@ class RouterLabParts:
             sio=sio,
             app=app,
             sandboxes=ExplicitDelDict("sandboxes"),
-            subscribe_thrs=ExplicitDelDict("subscribe_thrs"),
-            subscribe_thrs_stop_event=ExplicitDelDict("subscribe_thrs_stop_event"),
+            subscription_tasks=ExplicitDelDict("subscription_tasks"),
             _bare_logger=log,
             _is_built=True,
         )

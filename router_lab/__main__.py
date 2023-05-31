@@ -1,5 +1,7 @@
+import asyncio
 import os
 import signal
+import sys
 from dataclasses import dataclass
 from types import FrameType
 
@@ -18,9 +20,6 @@ from .utils import __version__, init_logger
 
 app = typer.Typer()
 
-# logger for the main process
-init_logger("router_lab.log")
-
 
 @app.command()
 def version():
@@ -33,6 +32,8 @@ class RouterLab(RouterLabConfig):
     """Router Lab Backend ❤️"""
 
     def __post_init__(self):
+        init_logger("router_lab.log", self.log_level)
+
         logger.info("Router Lab Backend! will be on {}:{}", self.socket_host, self.socket_port)
 
         app = web.Application()
@@ -100,8 +101,15 @@ class RouterLab(RouterLabConfig):
 
         def signal_handler(sig: int, frame: FrameType | None):
             logger.info("Router Lab Backend is shutting down...")
-            parts.sandboxes.destroy()
-            exit(0)
+            for task in asyncio.all_tasks():
+                task.cancel()
+            for key in parts.sandboxes.keys():
+                sbx = parts.sandboxes.get(key)
+                if sbx is not None:
+                    sbx.terminate_process()
+                    logger.info(f"Terminated sandbox {key} to shutdown")
+            logger.info("Bye!")
+            sys.exit(0)
 
         signal.signal(signal.SIGINT, signal_handler)
 
@@ -116,4 +124,8 @@ class RouterLab(RouterLabConfig):
             )
         except KeyboardInterrupt:
             logger.info("Router Lab Backend is shutting down...")
-            parts.sandboxes.destroy()
+            asyncio.create_task(parts.sandboxes.destroy())
+
+
+if __name__ == "__main__":
+    app()

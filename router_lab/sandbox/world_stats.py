@@ -7,5 +7,5 @@ WorldState = Literal["initialized", "configured", "running", "stopped"]
 @dataclass
 class WorldStats:
     state: WorldState
-    transmissions: dict[tuple[str, str, str], int]
+    transmissions: list[tuple[str, str, str, int]]
     nodes_updown: dict[str, bool]
