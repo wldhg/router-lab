@@ -10,11 +10,13 @@ class NodeCustomBase(ABC):
         node_ip: str,
         unicast: Callable[[str, bytes], Awaitable[None]],
         broadcast: Callable[[bytes], Awaitable[None]],
+        record_stat: Callable[[str, float | int], None],
         log: "loguru.Logger",
     ):
         self.ip = node_ip
         self.unicast = unicast
         self.broadcast = broadcast
+        self.record_stat = record_stat
         self.log = log
 
     async def every_1s(self):
@@ -27,9 +29,6 @@ class NodeCustomBase(ABC):
         pass
 
     async def every_10s(self):
-        pass
-
-    async def every_30s(self):
         pass
 
     @abstractmethod

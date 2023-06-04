@@ -35,6 +35,7 @@ class Sandbox:
         self.__thr_recv.start()
 
         self.__process_last_state: WorldState = "initialized"
+        self.__process_last_state_changable: bool = True
         self.is_initialized = True
 
     def __del__(self):
@@ -80,6 +81,7 @@ class Sandbox:
         self.__log.debug(f"SBX = lock acquire done : {__bomb_id} / lock {id(__recv_lock)}")
 
         def __recv_resolver() -> Any:
+            self.__log.debug(f"SBX = lock entered: {__bomb_id} / lock {id(__recv_lock)}")
             with __recv_lock:  # __pipe_recv_producer() will release the lock
                 if isinstance(__data, Exception):
                     self.__log.debug(f"SBX = lock exited 1: {__bomb_id} / lock {id(__recv_lock)}")
@@ -135,19 +137,22 @@ class Sandbox:
         )
 
     def start(self, algo_path: str) -> PromiseLike[None]:
+        self.__process_last_state_changable = True
         return self.__pipe_sender("start", {"algo_path": algo_path})
 
     def stop(self) -> PromiseLike[None]:
         # pre-set local cache
+        self.__process_last_state_changable = False
         self.__process_last_state = "stopped"
         return self.__pipe_sender("stop", {})
 
     def get_stats(self) -> PromiseLike[WorldStats]:
-        def update_stat(stat: WorldStats):
-            self.__process_last_state = stat.state
+        def update_stats(stat: WorldStats):
+            if self.__process_last_state_changable:
+                self.__process_last_state = stat.state
 
         promise = self.__pipe_sender("get_stats", {})
-        promise.once(update_stat)
+        promise.once(update_stats)
         return promise
 
     def get_node_stats(self, ip: str) -> PromiseLike[NodeStats]:

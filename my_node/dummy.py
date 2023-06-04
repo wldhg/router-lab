@@ -3,7 +3,6 @@ from router_lab import NodeCustomBase
 
 class DummyNodeImpl(NodeCustomBase):
     # NOTE : every_* implementation is optional
-
     async def every_1s(self):
         pass
 
@@ -14,9 +13,6 @@ class DummyNodeImpl(NodeCustomBase):
         pass
 
     async def every_10s(self):
-        pass
-
-    async def every_30s(self):
         pass
 
     # NOTE : main implementation is mandatory

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import threading
 from typing import Any, Awaitable, Callable, Generic, TypeVar
 
 from .undefined import UNDEFINED, UndefinedType
@@ -47,7 +48,9 @@ class PromiseLike(Generic[V]):
                     self.__catch_list.clear()
                     logging.debug("PRM = lock 2 exited")
 
-        asyncio.create_task(get_data_and_dispatch())
+        # use thread to avoid blocking the event loop
+        threading.Thread(target=asyncio.run, args=(get_data_and_dispatch(),)).start()
+        # asyncio.create_task(get_data_and_dispatch())
 
     async def __data_firing(self, callback: Callable[[V], Any]):
         if self.__fired_data == UNDEFINED:

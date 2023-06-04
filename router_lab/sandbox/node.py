@@ -3,6 +3,7 @@ import importlib
 import inspect
 import os
 import queue
+import sys
 import threading
 import time
 from typing import Awaitable, Callable
@@ -21,6 +22,7 @@ class Node:
         in_queue: queue.Queue,
         unicast: Callable[[str, str, bytes], Awaitable[None]],
         broadcast: Callable[[str, bytes], Awaitable[None]],
+        record_world_stat: Callable[[str, float | int], None],
         logger: "loguru.Logger",
     ):
         self.ip = ip
@@ -33,34 +35,49 @@ class Node:
         self.received_bytes = 0
         self.sent_bytes = 0
 
-        def local_unicast(dst: str, msg: bytes):
+        def local_unicast(dst: str, msg: bytes) -> Awaitable[None]:
+            if self.down:
+                return asyncio.sleep(0)
             self.sent_pkts += 1
             self.sent_bytes += len(msg)
             return unicast(ip, dst, msg)
 
-        def local_broadcast(msg: bytes):
+        def local_broadcast(msg: bytes) -> Awaitable[None]:
+            if self.down:
+                return asyncio.sleep(0)
             self.sent_pkts += 1
             self.sent_bytes += len(msg)
             return broadcast(ip, msg)
 
         algo_class: None | type[NodeCustomBase] = None
-        for v in importlib.import_module(
-            f"my_node.{os.path.basename(algo_path).replace('.py', '')}"
-        ).__dict__.values():
-            if (
-                inspect.isclass(v)
-                and (not inspect.isabstract(v))
-                and (v is not NodeCustomBase)
-                and issubclass(v, NodeCustomBase)
-            ):
-                algo_class = v
-                break
+        algo_module = f"my_node.{os.path.basename(algo_path).replace('.py', '')}"
+        if algo_module in sys.modules:
+            for v in importlib.reload(sys.modules[algo_module]).__dict__.values():
+                if (
+                    inspect.isclass(v)
+                    and (not inspect.isabstract(v))
+                    and (v is not NodeCustomBase)
+                    and issubclass(v, NodeCustomBase)
+                ):
+                    algo_class = v
+                    break
+        else:
+            for v in importlib.import_module(algo_module).__dict__.values():
+                if (
+                    inspect.isclass(v)
+                    and (not inspect.isabstract(v))
+                    and (v is not NodeCustomBase)
+                    and issubclass(v, NodeCustomBase)
+                ):
+                    algo_class = v
+                    break
         assert algo_class is not None, "No algorithm class found"
         self.algo_class = algo_class
         self.algo: NodeCustomBase = self.algo_class(
             ip,
             local_unicast,
             local_broadcast,
+            record_world_stat,
             self.log,
         )
 
@@ -84,8 +101,7 @@ class Node:
             self.every_3s_task = loop.create_task(self.__every_3s_handler())
             self.every_5s_task = loop.create_task(self.__every_5s_handler())
             self.every_10s_task = loop.create_task(self.__every_10s_handler())
-            self.every_30s_task = loop.create_task(self.__every_30s_handler())
-            loop.run_until_complete(self.every_30s_task)
+            loop.run_until_complete(self.every_10s_task)
         except Exception as e:
             self.log.error(e)
             self.log.exception(e)
@@ -160,18 +176,9 @@ class Node:
             except Exception as e:
                 self.log.exception(e)
 
-    async def __every_30s_handler(self):
-        while True:
-            await asyncio.sleep(30)
-            try:
-                await self.algo.every_30s()
-            except Exception as e:
-                self.log.exception(e)
-
     def get_node_stats(self) -> NodeStats:
         return NodeStats(
             self.ip,
-            self.down,
             self.received_pkts,
             self.sent_pkts,
             self.received_bytes,
@@ -189,16 +196,14 @@ class Node:
             self.in_queue.put(("", True))
         if hasattr(self, "recv_thr"):
             self.recv_thr.join()
-        if hasattr(self, "every_1s_task"):
-            self.every_1s_task.cancel()
-        if hasattr(self, "every_3s_task"):
-            self.every_3s_task.cancel()
-        if hasattr(self, "every_5s_task"):
-            self.every_5s_task.cancel()
         if hasattr(self, "every_10s_task"):
             self.every_10s_task.cancel()
-        if hasattr(self, "every_30s_task"):
-            self.every_30s_task.cancel()
+        if hasattr(self, "every_5s_task"):
+            self.every_5s_task.cancel()
+        if hasattr(self, "every_3s_task"):
+            self.every_3s_task.cancel()
+        if hasattr(self, "every_1s_task"):
+            self.every_1s_task.cancel()
         if hasattr(self, "main_task"):
             if not self.main_task.done():
                 self.main_task.cancel()

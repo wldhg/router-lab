@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "router-lab"
-version = "0.1.0"
+version = "0.2.0-dev.0"
 description = "Make your own routing network!"
 authors = ["wldhg <wldhg@aru.qa>"]
 readme = "README.md"

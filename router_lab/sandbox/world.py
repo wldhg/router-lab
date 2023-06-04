@@ -39,10 +39,20 @@ class World:
         self.current_links: dict[tuple[str, str], bool]
         self.current_nodes_updown: dict[str, bool] = {}
         self.current_transmissions: dict[tuple[str, str, str], int] = {}
+        self.current_transmissions_start_time: dict[tuple[str, str, str], float] = {}
         self.current_mq_to_node: list[queue.Queue] = []
         self.current_thread1: None | threading.Thread = None
         self.current_thread_stop_event = threading.Event()
         self.current_state: WorldState = "initialized"
+
+        self.stat_1hop_latency = 0.0
+        self.stat_1hop_throughput = 0.0
+        self.stat_packet_sent_bytes = 0.0
+        self.stat_packet_sent_count = 0
+        self.stat_packet_recv_bytes = 0.0
+        self.stat_packet_recv_count = 0
+        self.stat_started_at = 0.0
+        self.stat_custom: dict[str, tuple[float, float, float, int]] = {}
 
         self.__initialize()
         self.__pipe_receiver()
@@ -53,7 +63,7 @@ class World:
         self.log_buffer = WorldLoggingHandler()
         self.log = init_logger(log_file_name, log_level="DEBUG").bind(world=self.id)
         self.log.add(self.log_buffer, level=logging.DEBUG)
-        self.start_time = datetime.datetime.now().timestamp()
+        self.init_time = datetime.datetime.now().timestamp()
         self.log.info(f"World initialized, find your log at logs/{log_file_name} !")
         self.current_state: WorldState = "initialized"
         self.re_initialization_required = False
@@ -106,7 +116,11 @@ class World:
         self.broadcast_ip = broadcast_ip(subnet)
         self.mtu = mtu
 
+        topo_try = 0
         while True:
+            topo_try += 1
+            if topo_try % 1000 == 0:
+                self.log.warning(f"Failed to generate a valid topology {topo_try} times")
             topo_connection = np.random.randint(0, 2, (node_num, node_num))
             topo_connection = np.triu(topo_connection, 1)
             for _ in range(link_sparsity):
@@ -146,6 +160,19 @@ class World:
         self.node_down_interval = node_down_interval
         self.current_state = "configured"
 
+    def record_world_stat(self, stat_name: str, stat_value: float | int):
+        if self.current_state == "running":
+            stat_value = float(stat_value)
+            if stat_name not in self.stat_custom:
+                self.stat_custom[stat_name] = (stat_value, stat_value, stat_value, 1)
+            self.stat_custom[stat_name] = (
+                (stat_value + self.stat_custom[stat_name][0] * self.stat_custom[stat_name][3])
+                / (self.stat_custom[stat_name][3] + 1),
+                min(self.stat_custom[stat_name][1], stat_value),
+                max(self.stat_custom[stat_name][2], stat_value),
+                self.stat_custom[stat_name][3] + 1,
+            )
+
     def start(self, algo_path: str):
         self.log.info(f"Starting world with node implementation: {algo_path}")
         self.current_links = {}
@@ -161,11 +188,13 @@ class World:
                 self.current_mq_to_node[idx],
                 self.unicast,
                 self.broadcast,
+                self.record_world_stat,
                 self.log.bind(node=ip),
             )
             for idx, ip in enumerate(self.node_ips)
         ]
         self.current_transmissions = {}
+        self.current_transmissions_start_time = {}
 
         self.current_state = "running"
 
@@ -173,10 +202,17 @@ class World:
         self.current_thread1 = threading.Thread(target=self.update_node_updown_thread, daemon=True)
         self.current_thread1.start()
 
+        self.stat_1hop_latency = 0.0
+        self.stat_1hop_throughput = 0.0
+        self.stat_packet_sent_bytes = 0.0
+        self.stat_packet_sent_count = 0
+        self.stat_packet_recv_bytes = 0.0
+        self.stat_packet_recv_count = 0
+        self.stat_started_at = datetime.datetime.now().timestamp()
+        self.stat_custom = {}
+
         for node in self.current_nodes:
             node.start()
-
-        # TODO : reset metrics
 
     def stop(self):
         self.current_state = "stopped"  # this will also stop all transmissions
@@ -204,14 +240,27 @@ class World:
             time.sleep(self.node_down_interval)
 
     def get_stats(self) -> WorldStats:
-        transmissions = []
+        transmissions: list[tuple[str, str, str, int]] = []
         current_transmissions = self.current_transmissions.copy()
         for (src, dst, data_id), count in current_transmissions.items():
             transmissions.append((src, dst, data_id, count))
+        custom_stats: dict[str, tuple[float, float, float, int]] = {}
+        for stat_name, (stat_mean, stat_min, stat_max, stat_count) in self.stat_custom.items():
+            custom_stats[stat_name] = (stat_mean, stat_min, stat_max, stat_count)
         return WorldStats(
             state=self.current_state,
+            started_at=self.stat_started_at,
+            world_stats=(
+                self.stat_packet_sent_bytes,
+                self.stat_packet_sent_count,
+                self.stat_packet_recv_bytes,
+                self.stat_packet_recv_count,
+            ),
+            world_1hop_latency=self.stat_1hop_latency,
+            world_1hop_throughput=self.stat_1hop_throughput,
             transmissions=transmissions,
             nodes_updown=self.current_nodes_updown,
+            custom_stats=custom_stats,
         )
 
     def get_info(self) -> WorldInfo:
@@ -223,11 +272,11 @@ class World:
             self.topo.tolist(),
             self.bit_corrupt_rate,
             self.node_down_rate,
-            self.start_time,
+            self.init_time,
         )
 
-    def get_node_stats(self, ip: str) -> NodeStats:
-        idx = self.node_ips.index(ip)
+    def get_node_stats(self, ip: dict[str, str]) -> NodeStats:
+        idx = self.node_ips.index(ip["ip"])
         return self.current_nodes[idx].get_node_stats()
 
     def get_logs(self) -> list[dict[str, Any]]:
@@ -287,10 +336,19 @@ class World:
             if backoff > 12:
                 return
             await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.0005]))
+
+        self.stat_packet_sent_count += 1
+        self.stat_packet_sent_bytes += len(data)
+
         self.current_links[ip_tuple] = True
         self.current_transmissions[(node_src, node_dst, data_id)] = 0
+        self.current_transmissions_start_time[(node_src, node_dst, data_id)] = time.time()
         for _ in range(100):
             if self.current_state == "stopped":
+                return
+            if self.current_nodes[src_idx].down:
+                self.current_links[ip_tuple] = False
+                self.current_transmissions.pop((node_src, node_dst, data_id))
                 return
             self.current_transmissions[(node_src, node_dst, data_id)] += 1
             await asyncio.sleep(delay)
@@ -299,6 +357,19 @@ class World:
         if self.current_nodes[dst_idx].down:
             self.current_links[ip_tuple] = False
             return
+
+        self.stat_packet_recv_count += 1
+        self.stat_packet_recv_bytes += len(data)
+
+        latency = time.time() - self.current_transmissions_start_time.pop(
+            (node_src, node_dst, data_id)
+        )
+        self.stat_1hop_latency = (
+            self.stat_1hop_latency * (self.stat_packet_recv_count - 1) + latency
+        ) / self.stat_packet_recv_count
+        self.stat_1hop_throughput = (self.stat_packet_recv_bytes) / (
+            self.stat_packet_recv_count * self.stat_1hop_latency
+        )
 
         self.current_mq_to_node[dst_idx].put((node_src, data))
         self.current_links[ip_tuple] = False

@@ -1,4 +1,3 @@
-import datetime
 from dataclasses import dataclass
 
 
@@ -11,4 +10,4 @@ class WorldInfo:
     topo: list[list[bool]]
     bit_corrupt_rate: float
     node_down_rate: float
-    started_at: float
+    initialized_at: float
