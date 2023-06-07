@@ -22,6 +22,7 @@ class NodeCustomBase(ABC):
         broadcast: Callable[[bytes], Awaitable[None]],
         record_stat: RecordStatFnType,
         record_table: RecordTableFnType,
+        get_random_ip: Callable[[], str],
         log: "loguru.Logger",
     ):
         self.ip = node_ip
@@ -29,20 +30,19 @@ class NodeCustomBase(ABC):
         self.broadcast = broadcast
         self.record_stat = record_stat
         self.record_table = record_table
+        self.get_random_ip = get_random_ip
         self.log = log
 
     async def every_1s(self):
         pass
 
-    @abstractmethod
     async def main(self):
         pass
 
-    @abstractmethod
-    async def on_recv(self, src: str, msg: bytes):
+    async def on_recv(self, src_1hop: str, pkt: bytes):
         pass
 
-    async def on_queue(self, dst: str, msg: bytes):
+    async def on_queue(self, dst: str, pkt: bytes):
         pass
 
     def on_start(self):

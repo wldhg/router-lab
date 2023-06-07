@@ -45,19 +45,19 @@ class Node:
         self.table: dict[str, dict[str, str | float | int]] = {}
         self.table_cols: set[str] = set()
 
-        def local_unicast(dst: str, msg: bytes) -> Awaitable[None]:
+        def local_unicast(dst_1hop: str, pkt: bytes) -> Awaitable[None]:
             if self.down:
                 return asyncio.sleep(0)
             self.sent_pkts += 1
-            self.sent_bytes += len(msg)
-            return unicast(ip, dst, msg)
+            self.sent_bytes += len(pkt)
+            return unicast(ip, dst_1hop, pkt)
 
-        def local_broadcast(msg: bytes) -> Awaitable[None]:
+        def local_broadcast(pkt: bytes) -> Awaitable[None]:
             if self.down:
                 return asyncio.sleep(0)
             self.sent_pkts += 1
-            self.sent_bytes += len(msg)
-            return broadcast(ip, msg)
+            self.sent_bytes += len(pkt)
+            return broadcast(ip, pkt)
 
         def record_stat(**stats: float | int) -> None:
             for k in stats.keys():
@@ -100,6 +100,7 @@ class Node:
             local_broadcast,
             record_stat,
             record_table,
+            get_random_ip,
             self.log,
         )
 
