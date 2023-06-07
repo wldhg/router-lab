@@ -356,7 +356,7 @@ class World:
         backoff = 0
         while self.current_links[ip_tuple]:
             backoff += 1
-            if backoff > 15:
+            if backoff > 12:
                 return
             await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.001]))
 
