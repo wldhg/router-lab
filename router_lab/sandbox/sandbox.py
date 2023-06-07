@@ -119,6 +119,7 @@ class Sandbox:
         bit_corrupt_rate: float,
         node_down_rate: float,
         node_down_interval: float,
+        node_enqueue_rate: float,
     ) -> PromiseLike[None]:
         return self.__pipe_sender(
             "configure",
@@ -133,12 +134,16 @@ class Sandbox:
                 "bit_corrupt_rate": bit_corrupt_rate,
                 "node_down_rate": node_down_rate,
                 "node_down_interval": node_down_interval,
+                "node_enqueue_rate": node_enqueue_rate,
             },
         )
 
     def start(self, algo_path: str) -> PromiseLike[None]:
         self.__process_last_state_changable = True
         return self.__pipe_sender("start", {"algo_path": algo_path})
+
+    def start_activity(self) -> PromiseLike[None]:
+        return self.__pipe_sender("start_activity", {})
 
     def stop(self) -> PromiseLike[None]:
         # pre-set local cache

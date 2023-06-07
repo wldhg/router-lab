@@ -2,17 +2,8 @@ from router_lab import NodeCustomBase
 
 
 class DummyNodeImpl(NodeCustomBase):
-    # NOTE : every_* implementation is optional
+    # NOTE : every_1s implementation is optional
     async def every_1s(self):
-        pass
-
-    async def every_3s(self):
-        pass
-
-    async def every_5s(self):
-        pass
-
-    async def every_10s(self):
         pass
 
     # NOTE : main implementation is mandatory
@@ -24,6 +15,15 @@ class DummyNodeImpl(NodeCustomBase):
         self.log.info(f"Received from {src}: {msg}")
         if msg == b"Hello, world!":
             await self.unicast(src, b"Hello, " + src.encode() + b"!")
+
+    # NOTE : on_queue implementation is optional
+    async def on_queue(self, dst: str, msg: bytes):
+        pass
+
+    # NOTE : on_start implementation is optional
+    # NOTE : on_start is synchronous (not async)
+    def on_start(self):
+        self.log.info(f"Node started (${self.ip})")
 
     # NOTE : on_stop implementation is optional
     # NOTE : on_stop is synchronous (not async)

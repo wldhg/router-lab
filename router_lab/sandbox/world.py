@@ -34,6 +34,7 @@ class World:
         self.bit_corrupt_rate = 0.0001
         self.node_down_rate = 0.01
         self.node_down_interval = 8.88
+        self.node_enqueue_rate = 0.01
 
         self.current_nodes: list[Node] = []
         self.current_links: dict[tuple[str, str], bool]
@@ -56,6 +57,11 @@ class World:
 
         self.__initialize()
         self.__pipe_receiver()
+
+    def export_world(self) -> dict[str, Any]:
+        # TODO
+        # Socket & Sandbox pipeline also needs to be updated
+        raise NotImplementedError
 
     def __initialize(self):
         self.id = str(uuid.uuid4())[:4]
@@ -103,6 +109,7 @@ class World:
         bit_corrupt_rate: float,
         node_down_rate: float,
         node_down_interval: float,
+        node_enqueue_rate: float,
     ):
         if self.re_initialization_required:
             self.__initialize()
@@ -158,7 +165,13 @@ class World:
         self.bit_corrupt_rate = bit_corrupt_rate
         self.node_down_rate = node_down_rate
         self.node_down_interval = node_down_interval
+        self.node_enqueue_rate = node_enqueue_rate
         self.current_state = "configured"
+
+    def configure_by_import(self, world: dict[str, Any]):
+        # TODO
+        # Socket & Sandbox pipeline also needs to be updated
+        raise NotImplementedError
 
     def record_world_stat(self, stat_name: str, stat_value: float | int):
         if self.current_state == "running":
@@ -186,9 +199,11 @@ class World:
                 ip,
                 algo_path,
                 self.current_mq_to_node[idx],
+                self.node_enqueue_rate,
                 self.unicast,
                 self.broadcast,
                 self.record_world_stat,
+                self.get_random_ip,
                 self.log.bind(node=ip),
             )
             for idx, ip in enumerate(self.node_ips)
@@ -216,7 +231,6 @@ class World:
 
     def stop(self):
         self.current_state = "stopped"  # this will also stop all transmissions
-        # TODO : stop calculating metrics
         self.re_initialization_required = True
         if hasattr(self, "current_nodes"):
             for node in self.current_nodes:
@@ -225,6 +239,12 @@ class World:
         if self.current_thread1 is not None:
             self.current_thread1.join()
         self.log.info("World stopped")
+
+    def start_activity(self):
+        if self.current_state != "running":
+            return
+        for node in self.current_nodes:
+            node.start_activity()
 
     def update_node_updown_thread(self):
         while not self.current_thread_stop_event.is_set():
@@ -274,6 +294,9 @@ class World:
             self.node_down_rate,
             self.init_time,
         )
+
+    def get_random_ip(self) -> str:
+        return self.node_ips[np.random.randint(0, len(self.node_ips))]
 
     def get_node_stats(self, ip: dict[str, str]) -> NodeStats:
         idx = self.node_ips.index(ip["ip"])
@@ -335,7 +358,7 @@ class World:
             backoff += 1
             if backoff > 12:
                 return
-            await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.0005]))
+            await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.001]))
 
         self.stat_packet_sent_count += 1
         self.stat_packet_sent_bytes += len(data)

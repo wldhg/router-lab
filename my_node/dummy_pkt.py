@@ -39,7 +39,7 @@ class DummyNodeImpl(NodeCustomBase):
     async def on_recv(self, src: str, pkt_bytes: bytes):
         pkt = DummyPacket.from_bytes(pkt_bytes)
         latency = time.time() - pkt.timestamp
-        self.record_stat("latency", latency)
+        self.record_stat(latency=latency)
         self.log.info(f"Received from {src}: {pkt.msg} (latency: {latency:.3f}s)")
         if pkt.msg == "Hello, world!":
             reply_pkt_bytes = DummyPacket(

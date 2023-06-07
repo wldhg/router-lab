@@ -21,6 +21,9 @@ async def world_configure(
         assert "kbps_min" in data, "kbps_min is required."
         assert "kbps_max" in data, "kbps_max is required."
         assert "kbps_std_max" in data, "kbps_std_max is required."
+        assert "bit_corrupt_rate" in data, "bit_corrupt_rate is required."
+        assert "node_down_rate" in data, "node_down_rate is required."
+        assert "node_enqueue_rate" in data, "node_enqueue_rate is required."
     except AssertionError as e:
         await send_500(str(e))
         return
@@ -40,7 +43,8 @@ async def world_configure(
         data["kbps_min"],
         data["kbps_max"],
         data["kbps_std_max"],
-        data.get("bit_corrupt_rate", 0.0001),
-        data.get("node_down_rate", 0.01),
+        data["bit_corrupt_rate"],
+        data["node_down_rate"],
         rlp.cfg.world_node_down_interval,
+        data["node_enqueue_rate"],
     ).once(send_200).catch(send_500)
