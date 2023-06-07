@@ -1,6 +1,18 @@
 import random
 
 
+def is_valid_ip(ip: str) -> bool:
+    ip_split = ip.split(".")
+    if len(ip_split) != 4:
+        return False
+    for byte in ip_split:
+        if not byte.isdigit():
+            return False
+        if not 0 <= int(byte) <= 255:
+            return False
+    return True
+
+
 def random_ip(subnet: str) -> str:
     assert "/" in subnet, "Invalid subnet."
     byte1, byte2, byte3, byte4 = map(int, subnet.split("/")[0].split("."))

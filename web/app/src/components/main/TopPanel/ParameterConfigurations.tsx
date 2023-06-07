@@ -159,7 +159,7 @@ const ParameterConfigurations = () => {
   const isError = Object.entries(globalConfigurationParameters).some(
     ([key, value]) => {
       if (key === "kbps_min" || key === "kbps_max") {
-        return value < 0.015 || value > 0.5;
+        return value < 0.01 || value > 10.0;
       } else if (key === "node_num") {
         return value < 5 || value > 160;
       } else if (key === "link_sparsity") {
@@ -170,6 +170,8 @@ const ParameterConfigurations = () => {
         return value < 0 || value > 0.001;
       } else if (key === "node_down_rate") {
         return value < 0 || value > 0.05;
+      } else if (key === "node_enqueue_rate") {
+        return value < 0 || value > 1.0;
       }
       return false;
     }
@@ -288,18 +290,20 @@ const ParameterConfigurations = () => {
             label="Link Speed (kbps)"
             description="Range of link speed in kbps."
             marks={{
-              0.015: "0.015",
-              0.2: "0.2",
-              0.4: "0.4",
-              0.5: "0.5",
+              0.01: "0.01",
+              2.0: "2.0",
+              4.0: "4.0",
+              6.0: "6.0",
+              8.0: "8.0",
+              10.0: "10.0",
             }}
             value={[
               globalConfigurationParameters.kbps_min,
               globalConfigurationParameters.kbps_max,
             ]}
             disabled={globalState === "configuring"}
-            value_min={0.015}
-            value_max={0.5}
+            value_min={0.01}
+            value_max={10.0}
             step={0.001}
             onChange={(value: number | number[]) => {
               setGlobalConfigurationParameters({
@@ -375,6 +379,30 @@ const ParameterConfigurations = () => {
             }}
             useInput
             useWideInput
+          />
+          <ParameterConfigurationSlider
+            label="Node Packet Enqueue Rate"
+            description="The probability of packet enqueue from applications, for every seconds."
+            marks={{
+              0.0: "0",
+              0.2: "0.2",
+              0.4: "0.4",
+              0.6: "0.6",
+              0.8: "0.8",
+              1.0: "1",
+            }}
+            value={globalConfigurationParameters.node_enqueue_rate}
+            value_min={0}
+            value_max={1.0}
+            disabled={globalState === "configuring"}
+            step={0.01}
+            onChange={(value: number | number[]) => {
+              setGlobalConfigurationParameters({
+                ...globalConfigurationParameters,
+                node_enqueue_rate: value as number,
+              });
+            }}
+            useInput
           />
         </Box>
       </Stack>

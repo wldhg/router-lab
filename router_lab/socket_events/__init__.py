@@ -7,4 +7,5 @@ from .subscribe_world_stats import subscribe_world_stats
 from .world_configure import world_configure
 from .world_info import world_info
 from .world_start import world_start
+from .world_start_activity import world_start_activity
 from .world_stop import world_stop

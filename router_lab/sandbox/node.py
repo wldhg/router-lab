@@ -196,15 +196,15 @@ class Node:
         threading.Thread(target=self.__main_handler).start()
 
     async def activity(self):
-        self.log.info(f"Node activity started (${self.ip})")
+        self.log.info(f"Lorem activity started (${self.ip})")
         while True:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(1.0)
             try:
                 prob = random.random() <= self.enqueue_rate
                 if prob:
                     dst_ip = self.get_random_ip()
                     if dst_ip != "":
-                        await self.algo.on_queue(dst_ip, lorem.sentence().encode())
+                        await self.algo.on_queue(dst_ip, lorem.paragraph().encode())
             except Exception as e:
                 self.log.exception(e)
 

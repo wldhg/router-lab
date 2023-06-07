@@ -1,9 +1,22 @@
-import { globalSocket_, globalUse3DGraph_, worldStats_ } from "@/recoil";
+import {
+  globalSocket_,
+  globalState_,
+  globalTopPanelPinned_,
+  globalUse3DGraph_,
+  worldStats_,
+} from "@/recoil";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Card from "@mui/material/Card";
 import CardContent from "@mui/material/CardContent";
 import CircularProgress from "@mui/material/CircularProgress";
+import Paper from "@mui/material/Paper";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Typography from "@mui/material/Typography";
 import { useTheme } from "@mui/material/styles";
 import { Canvas } from "@react-three/fiber";
@@ -34,37 +47,64 @@ const Node3D = (props: Node3DProps) => {
   );
 };
 
+interface NodeStatsData {
+  ip?: string;
+  sent_pkts?: number;
+  recv_pkts?: number;
+  sent_bytes?: number;
+  recv_bytes?: number;
+  table_cols?: string[];
+  table?: {
+    [key: string]: (string | number)[];
+  };
+}
+
 interface NodeStatsProps {
   nodeIP: string;
   closeAction: () => void;
 }
+
 const NodeStats = (props: NodeStatsProps) => {
   const { nodeIP, closeAction } = props;
   const globalSocket = useRecoilValue(globalSocket_);
+  const globalState = useRecoilValue(globalState_);
   const globalUse3DGraph = useRecoilValue(globalUse3DGraph_);
-  const [nodeStats, setNodeStats] = useState<any>({});
+  const globalTopPanelPinned = useRecoilValue(globalTopPanelPinned_);
+  const [nodeStats, setNodeStats] = useState<NodeStatsData>({});
   const [nodeStatsLoading, setNodeStatsLoading] = useState(true);
   const worldStats = useRecoilValue(worldStats_);
   const theme = useTheme();
 
   useEffect(() => {
     if (globalSocket && nodeIP) {
-      globalSocket.emit("node_stats", { ip: nodeIP });
-      globalSocket.on("node_stats", (data: any) => {
-        setNodeStats(data["data"]);
-        setNodeStatsLoading(false);
-      });
+      if (
+        globalState === "running" ||
+        globalState === "stopping" ||
+        globalState === "stopped"
+      ) {
+        setNodeStatsLoading(true);
 
-      const interval = setInterval(() => {
         globalSocket.emit("node_stats", { ip: nodeIP });
-      }, 1000);
+        globalSocket.on("node_stats", (data: any) => {
+          setNodeStats(data["data"]);
+          setNodeStatsLoading(false);
+        });
 
-      return () => {
-        globalSocket.off("node_stats");
-        clearInterval(interval);
-      };
+        const interval = setInterval(() => {
+          globalSocket.emit("node_stats", { ip: nodeIP });
+        }, 1000);
+
+        return () => {
+          globalSocket.off("node_stats");
+          clearInterval(interval);
+        };
+      }
+
+      setNodeStatsLoading(false);
     }
-  }, [globalSocket, nodeIP]);
+
+    return () => {};
+  }, [globalSocket, nodeIP, globalState]);
 
   return (
     <Card
@@ -110,7 +150,14 @@ const NodeStats = (props: NodeStatsProps) => {
         >
           Node Metrics
         </Typography>
-        <Typography variant="h5" gutterBottom>
+        <Typography
+          variant="h5"
+          gutterBottom
+          sx={{
+            fontFamily: "'Fira Mono', monospace",
+            fontWeight: 700,
+          }}
+        >
           {nodeIP}
         </Typography>
         {nodeStatsLoading ? (
@@ -126,7 +173,7 @@ const NodeStats = (props: NodeStatsProps) => {
                 fontFamily: "'Fira Mono', monospace",
               }}
             >
-              Sent: {nodeStats?.sent_pkts} pkts
+              Sent: {nodeStats?.sent_pkts || "0"} pkts
             </Typography>
             <Typography
               variant="body1"
@@ -135,7 +182,7 @@ const NodeStats = (props: NodeStatsProps) => {
                 fontFamily: "'Fira Mono', monospace",
               }}
             >
-              Sent Bytes: {nodeStats?.sent_bytes} bytes
+              Sent Bytes: {nodeStats?.sent_bytes || "0"} bytes
             </Typography>
             <Typography
               variant="body1"
@@ -144,7 +191,7 @@ const NodeStats = (props: NodeStatsProps) => {
                 fontFamily: "'Fira Mono', monospace",
               }}
             >
-              Received: {nodeStats?.recv_pkts} pkts
+              Received: {nodeStats?.recv_pkts || "0"} pkts
             </Typography>
             <Typography
               variant="body1"
@@ -153,8 +200,72 @@ const NodeStats = (props: NodeStatsProps) => {
                 fontFamily: "'Fira Mono', monospace",
               }}
             >
-              Received Bytes: {nodeStats?.recv_bytes} bytes
+              Received Bytes: {nodeStats?.recv_bytes || "0"} bytes
             </Typography>
+            {(nodeStats.table_cols?.length || 0) > 0 && (
+              <TableContainer
+                component={Paper}
+                sx={{
+                  mt: 1,
+                  minHeight: 120,
+                  maxHeight: globalTopPanelPinned
+                    ? "calc(100vh - 900px)"
+                    : "calc(100vh - 500px)",
+                }}
+                elevation={3}
+              >
+                <Table stickyHeader size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell
+                        sx={{
+                          whiteSpace: "pre-wrap",
+                          fontFamily: "'Fira Mono', monospace",
+                        }}
+                      >
+                        key
+                      </TableCell>
+                      {nodeStats.table_cols?.map((col, idx) => (
+                        <TableCell
+                          key={`node-stats-table-col-${idx}`}
+                          sx={{
+                            whiteSpace: "pre-wrap",
+                            fontFamily: "'Fira Mono', monospace",
+                          }}
+                        >
+                          {col}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {Object.keys(nodeStats.table || {}).map((row, idx) => (
+                      <TableRow key={`node-stats-table-row-${idx}`}>
+                        <TableCell
+                          sx={{
+                            whiteSpace: "pre-wrap",
+                            fontFamily: "'Fira Mono', monospace",
+                          }}
+                        >
+                          {row}
+                        </TableCell>
+                        {nodeStats.table?.[row].map((col, idx) => (
+                          <TableCell
+                            key={`node-stats-table-row-${idx}`}
+                            sx={{
+                              whiteSpace: "pre-wrap",
+                              fontFamily: "'Fira Mono', monospace",
+                            }}
+                          >
+                            {col}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
           </>
         )}
         <br />

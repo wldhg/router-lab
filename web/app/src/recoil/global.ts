@@ -36,6 +36,7 @@ interface GlobalConfigurationParameters {
   kbps_std_max: number;
   bit_corrupt_rate: number;
   node_down_rate: number;
+  node_enqueue_rate: number;
 }
 
 const globalConfigurationParameters = atom<GlobalConfigurationParameters>({
@@ -43,11 +44,12 @@ const globalConfigurationParameters = atom<GlobalConfigurationParameters>({
   default: {
     node_num: 20,
     link_sparsity: 2,
-    kbps_min: 0.015,
-    kbps_max: 0.035,
+    kbps_min: 0.8,
+    kbps_max: 1.2,
     kbps_std_max: 0.005,
     bit_corrupt_rate: 0.0001,
     node_down_rate: 0.01,
+    node_enqueue_rate: 0.1,
   },
 });
 

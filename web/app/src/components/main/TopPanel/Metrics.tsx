@@ -82,6 +82,8 @@ const Metrics = () => {
   const worldStats = useRecoilValue(worldStats_);
   const [timer, setTimer] = useState<Date>(new Date());
   const [masonryColumns, setMasonryColumns] = useState(1);
+  const [isWorldActive, setIsWorldActive] = useState(false);
+  const [isWorldActivating, setIsWorldActivating] = useState(false);
 
   const handleStop = () => {
     if (globalSocket) {
@@ -146,6 +148,21 @@ const Metrics = () => {
     };
   }, []);
 
+  const handleActivity = () => {
+    if (globalSocket) {
+      setIsWorldActivating(true);
+      globalSocket.once("world_start_activity", (data) => {
+        setIsWorldActivating(false);
+        if (data["status"] === 200) {
+          setIsWorldActive(true);
+        } else {
+          console.error(data["error"]);
+        }
+      });
+      globalSocket.emit("world_start_activity");
+    }
+  };
+
   return (
     <>
       <Box sx={{ width: "100%", height: "338px", overflowY: "auto" }}>
@@ -198,18 +215,25 @@ const Metrics = () => {
               worldStats.transmissions.length
             } packets lost`}
           />
-          {Object.keys(worldStats.custom_stats).map((stat_key, index) => (
-            <MetricCard
-              key={`custom_stat_${index}`}
-              title={stat_key[0].toUpperCase() + stat_key.slice(1) + " Average"}
-              value={`${worldStats.custom_stats[stat_key][0].toFixed(2)}`}
-              sub={`Count: ${
-                worldStats.custom_stats[stat_key][3]
-              }\nMin:   ${worldStats.custom_stats[stat_key][1].toFixed(
-                2
-              )}\nMax:   ${worldStats.custom_stats[stat_key][2].toFixed(2)}`}
-            />
-          ))}
+          {Object.keys(worldStats.custom_stats).map((stat_key, index) => {
+            const title =
+              stat_key
+                .split("_")
+                .map((stat_k) => stat_k[0].toUpperCase() + stat_k.slice(1))
+                .join(" ") + " Average";
+            return (
+              <MetricCard
+                key={`custom_stat_${index}`}
+                title={title}
+                value={`${worldStats.custom_stats[stat_key][0].toFixed(2)}`}
+                sub={`Count: ${
+                  worldStats.custom_stats[stat_key][3]
+                }\nMin:   ${worldStats.custom_stats[stat_key][1].toFixed(
+                  2
+                )}\nMax:   ${worldStats.custom_stats[stat_key][2].toFixed(2)}`}
+              />
+            );
+          })}
         </Masonry>
       </Box>
       {document.getElementById("ts_x1") &&
@@ -227,6 +251,20 @@ const Metrics = () => {
             ) : (
               <>
                 <Button
+                  variant="outlined"
+                  onClick={handleActivity}
+                  color="primary"
+                  disabled={
+                    globalState !== "running" ||
+                    isWorldActive ||
+                    isWorldActivating
+                  }
+                >
+                  {isWorldActive
+                    ? "Lorem Activities Started"
+                    : "Start Lorem Activities"}
+                </Button>
+                <Button
                   variant="contained"
                   onClick={handleStop}
                   color="error"
@@ -238,6 +276,12 @@ const Metrics = () => {
                 {globalState === "stopping" && (
                   <Typography variant="body2">
                     This takes 30 seconds at most.
+                  </Typography>
+                )}
+                {isWorldActivating && <CircularProgress size={20} />}
+                {isWorldActivating && (
+                  <Typography variant="body2">
+                    Starting network activities...
                   </Typography>
                 )}
               </>
