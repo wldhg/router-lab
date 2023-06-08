@@ -15,10 +15,17 @@ async def list_impls(
     get_data: Callable[[str], Any],
     sid: str,
 ):
-    base_dir = os.path.join(os.path.dirname(__file__), "..", "..", "my_node")
-    pys = glob.glob(os.path.join(base_dir, "*.py"))
+    base_dir1 = os.path.join(os.path.dirname(__file__), "..", "..", "my_node")
+    pys1 = glob.glob(os.path.join(base_dir1, "*.py"))
+    base_dir2 = os.path.join(os.getcwd(), "my_node")
+    pys2 = glob.glob(os.path.join(base_dir2, "*.py"))
     algo_candidates = []
-    for py in pys:
+    for py in pys1:
+        basename = os.path.basename(py)
+        if basename.startswith("_"):
+            continue
+        algo_candidates.append(basename)
+    for py in pys2:
         basename = os.path.basename(py)
         if basename.startswith("_"):
             continue
