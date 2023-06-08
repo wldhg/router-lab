@@ -317,7 +317,7 @@ class World:
         src_idx = self.node_ips.index(node_src)
 
         for dst_idx in range(len(self.node_ips)):
-            if self.topo[src_idx, dst_idx]:
+            if self.topo[src_idx, dst_idx] or self.topo[dst_idx, src_idx]:
                 await self.unicast(node_src, self.node_ips[dst_idx], data)
 
     async def unicast(self, node_src: str, node_dst: str, data: bytes):
@@ -334,7 +334,7 @@ class World:
         if src_idx == dst_idx:
             return
 
-        if not self.topo[src_idx, dst_idx]:
+        if not self.topo[src_idx, dst_idx] or not self.topo[dst_idx, src_idx]:
             return
 
         data = self.apply_corrupt(data)
@@ -355,9 +355,8 @@ class World:
         # Exponential Backoff with 1ms slot time
         backoff = 0
         while self.current_links[ip_tuple]:
-            backoff += 1
-            if backoff > 12:
-                return
+            if backoff <= 12:
+                backoff += 1
             await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.001]))
 
         self.stat_packet_sent_count += 1
