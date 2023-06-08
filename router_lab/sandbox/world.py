@@ -355,7 +355,7 @@ class World:
         # Exponential Backoff with 1ms slot time
         backoff = 0
         while self.current_links[ip_tuple]:
-            if backoff <= 12:
+            if backoff <= 7:
                 backoff += 1
             await asyncio.sleep(max([random.random() * 0.0005 * 2**backoff, 0.001]))
 
