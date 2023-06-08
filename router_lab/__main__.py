@@ -62,9 +62,13 @@ class RouterLab(RouterLabConfig):
                 pass
 
         def rlab_static_path(path: str) -> str:
-            return os.path.normpath(
+            path1 = os.path.normpath(
                 os.path.join(os.path.dirname(__file__), "..", "web", "html", path)
             )
+            path2 = os.path.normpath(os.path.join(os.getcwd(), "web", "html", path))
+            if os.path.exists(path1):
+                return path1
+            return path2
 
         rlab_handle_log = logger.bind(ctx="web")
 
