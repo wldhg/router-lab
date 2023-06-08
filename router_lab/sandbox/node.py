@@ -70,6 +70,8 @@ class Node:
                 self.table_cols.add(k)
             self.table[row_name] = table
 
+        sys.path.append(os.getcwd())
+
         algo_class: None | type[NodeCustomBase] = None
         algo_module = f"my_node.{os.path.basename(algo_path).replace('.py', '')}"
         if algo_module in sys.modules:
